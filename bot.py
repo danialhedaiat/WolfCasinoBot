@@ -115,6 +115,11 @@ async def charge_request(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.effective_message.reply_text("شارژ شما با موفقیت ثبت شد! 💰\n")
 
+    notify_text = f"درخواست شارژ جدید توسط {username} ثبت شد."
+    await context.bot.send_message(chat_id=super_admin.telegram_id, text=notify_text)
+    for admin in admins:
+        await context.bot.send_message(chat_id=admin.telegram_id, text=notify_text)
+
 
 async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.username
