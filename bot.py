@@ -1,41 +1,74 @@
+import os
+
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, BotCommand
 from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, ContextTypes
 
-tables = {}
-admin_user_id = 90617694
+from admin import Admin
+from member import Member
+from table import Table
+
+tables: list[Table] = []
+
+super_user = os.getenv("SUPER_USER")
+super_admin = Admin(telegram_id=super_user)
+
+admins: list[Admin] = []
+
+members: list[Member] = []
+
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
+    user_id = update.effective_user.username
 
-    if user_id == admin_user_id:
+    if user_id == super_admin.telegram_id:
         await update.message.reply_text("سلام ادمین! با دستور /newgame یه میز جدید بساز.")
     else:
         if not tables:
             await update.message.reply_text("فعلاً میزی ساخته نشده. منتظر بمون تا ادمین یه میز بسازه.")
             return
 
-        # پیدا کردن آخرین میز
-        last_table_id = list(tables.keys())[-1]
-        keyboard = [[InlineKeyboardButton("ورود به میز", callback_data=f"join_{last_table_id}")]]
-        reply_markup = InlineKeyboardMarkup(keyboard)
 
-        await update.message.reply_text("برای ورود به بازی روی دکمه زیر بزن:", reply_markup=reply_markup)
+async def new_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.username
+    if user_id != super_admin.telegram_id:
+        await update.message.reply_text("فقط ادمین می‌تونه ادمین جدید اضافه کنه.")
+        return
+
+    new_admin_username = context.args[0] if context.args else None
+    if not new_admin_username:
+        await update.message.reply_text("لطفاً نام کاربری ادمین جدید را وارد کنید.")
+        return
+
+    new_admin = Admin(telegram_id=new_admin_username)
+    admins.append(new_admin)
+
+    await update.message.reply_text(f"ادمین جدید {new_admin_username} اضافه شد!")
+
+
+async def join(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.username
+    keyboard = [
+        [InlineKeyboardButton(f"ورود به میز {table.table_id}", callback_data=f"join_{table.table_id}") for table in
+         tables]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    await update.message.reply_text("لطفاً یکی از میزها را انتخاب کنید:", reply_markup=reply_markup)
 
 
 async def new_table(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != admin_user_id:
+    user_id = update.effective_user.username
+    if user_id != super_admin.telegram_id and user_id not in [admin.telegram_id for admin in admins]:
         await update.message.reply_text("فقط ادمین می‌تونه میز جدید بسازه.")
         return
-    table_id = f"table_{len(tables)+1}"
-    tables[table_id] = {
-        "name": f"میز {len(tables)+1}",
-        "players": {},
-    }
 
-    keyboard = [[InlineKeyboardButton("ورود به میز", callback_data=f"join_{table_id}")]]
+    table = Table()
+    tables.append(table)
+
+    keyboard = [[InlineKeyboardButton(f"ورود به میز {table.table_id}", callback_data=f"join_{table.table_id}")]]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
-    await update.message.reply_text(f"{tables[table_id]['name']} ساخته شد!", reply_markup=reply_markup)
+    await update.message.reply_text(f"{table.table_id} ساخته شد!", reply_markup=reply_markup)
+
 
 async def join_table(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -46,77 +79,75 @@ async def join_table(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = query.from_user.id
     username = query.from_user.username or query.from_user.full_name
 
-    tables[table_id]["players"][user_id] = {
-        "name": username,
-        "charge_count": 0
-    }
+    member = Member(telegram_id=username)
+    if member.telegram_id in tuple(member.telegram_id for member in members):
+        await query.edit_message_text("شما در این میز حضور دارید.")
+        return
+    members.append(member)
 
-    keyboard = [[InlineKeyboardButton("💵 منو شارژ کن", callback_data=f"charge_{table_id}")]]
+    table = next((table for table in tables if str(table.table_id) == table_id), None)
+    if not table:
+        await query.edit_message_text("میز مورد نظر پیدا نشد.")
+        return
+    table.add_member(member.telegram_id)
+
+    keyboard = [[InlineKeyboardButton("💵 منو شارژ کن", callback_data=f"charge_{member.telegram_id}")]]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
     await query.edit_message_text(
-        f"{username} به {tables[table_id]['name']} اضافه شد.",
+        f"{username} به میز {table_id} اضافه شد.",
         reply_markup=reply_markup
     )
+
 
 async def charge_request(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
 
-    table_id = query.data.split("_", 1)[1]
     user_id = query.from_user.id
     username = query.from_user.username or query.from_user.full_name
 
-    if user_id in tables[table_id]["players"]:
-        tables[table_id]["players"][user_id]["charge_count"] += 1
-        await context.bot.send_message(
-            chat_id=admin_user_id,
-            text=f"🧨 {username} درخواست شارژ جدید داد در {tables[table_id]['name']}.\n"
-                 f"🔁 تعداد شارژ: {tables[table_id]['players'][user_id]['charge_count']}"
-        )
-        await query.edit_message_text("✅ درخواست شارژ شما ثبت شد.")
+    member = next((member for member in members if member.telegram_id == username), None)
+    if not member:
+        await query.edit_message_text("شما هنوز به هیچ میزی نپیوسته‌اید. لطفاً ابتدا به یک میز بپیوندید.")
+        return
+    member.increace_charge()
+
+    await update.effective_message.reply_text("شارژ شما با موفقیت ثبت شد! 💰\n")
+
 
 async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != admin_user_id:
+    user_id = update.effective_user.username
+    if user_id != super_admin.telegram_id and user_id not in [
+        admin.telegram_id for
+        admin in admins]:
         await update.effective_message.reply_text("فقط ادمین به این دسترسی داره.")
         return
 
     msg = "📊 وضعیت همه میزها:\n\n"
-    for table_id, info in tables.items():
-        msg += f"🃏 {info['name']}:\n"
-        for player in info["players"].values():
-            msg += f"  - {player['name']}: {player['charge_count']} شارژ\n"
+    for member in members:
+        msg += f"🃏 {member.telegram_id}:\n"
+        msg += f"  - {member.charge_count} شارژ\n"
         msg += "\n"
 
     await update.effective_message.reply_text(msg)
 
 
 async def charge(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    found_table = None
+    user_id = update.effective_user.username
 
-    # پیدا کردن میزی که این بازیکن توشه
-    for table_id, info in tables.items():
-        if user_id in info["players"]:
-            found_table = (table_id, info)
-            break
-
-    if not found_table:
-        await update.message.reply_text("شما هنوز عضو هیچ میزی نیستید.")
+    if user_id not in [member.telegram_id for member in members]:
+        await update.message.reply_text("شما هنوز به هیچ میزی نپیوسته‌اید. لطفاً ابتدا به یک میز بپیوندید.")
         return
 
-    table_id, table_info = found_table
-    player_info = table_info["players"][user_id]
-    charge_count = player_info["charge_count"]
-
-    # ساخت دکمه درخواست شارژ
     keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("🔁 منو شارژ کن", callback_data=f"charge_{table_id}")]
+        [InlineKeyboardButton("🔁 منو شارژ کن", callback_data=f"charge_")]
     ])
+    member = next((member for member in members if member.telegram_id == user_id), None)
 
     await update.message.reply_text(
-        f"💰 وضعیت شارژ شما در میز {table_info['name']}:\n"
-        f"تعداد شارژ: {charge_count}\n\n"
+        f"💰 وضعیت شارژ شما :\n"
+        f"تعداد شارژ: {member.charge_count}\n\n"
         f"برای درخواست شارژ جدید دکمه زیر را بزنید 👇",
         reply_markup=keyboard
     )
@@ -125,36 +156,30 @@ async def charge(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def set_bot_commands(application):
     await application.bot.set_my_commands([
         BotCommand("start", "شروع"),
+        BotCommand("admin", "اضافه کردن ادمین جدید (فقط ادمین)"),
         BotCommand("join", "عضویت در میز"),
+        BotCommand("newgame", "ساخت میز جدید (فقط ادمین)"),
         BotCommand("charge", "درخواست شارژ و مشاهده تعداد شارژ"),
         BotCommand("status", "وضعیت همه میزها (فقط ادمین)"),
     ])
 
-app = ApplicationBuilder().token("8073969030:AAGJJiKYpCjTNvpU3aqc6matVvf2s_KNl2w").build()
-app.add_handler(CommandHandler("start", start))
-app.add_handler(CommandHandler("newgame", new_table))
-app.add_handler(CommandHandler("status", status))
-app.add_handler(CommandHandler("charge", charge))
-app.add_handler(CallbackQueryHandler(join_table, pattern="^join_"))
-app.add_handler(CallbackQueryHandler(charge_request, pattern="^charge_"))
 
-
-
-# برنامه اصلی
 def main():
-    app = ApplicationBuilder().token("8073969030:AAGJJiKYpCjTNvpU3aqc6matVvf2s_KNl2w").build()
+    app = ApplicationBuilder().token(os.getenv("TELEGRAM_TOKEN")).build()
 
     # ثبت هندلرها
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("admin", new_admin))
     app.add_handler(CommandHandler("newgame", new_table))
     app.add_handler(CommandHandler("status", status))
     app.add_handler(CommandHandler("charge", charge))
+    app.add_handler(CommandHandler("join", join))
     app.add_handler(CallbackQueryHandler(join_table, pattern="^join_"))
     app.add_handler(CallbackQueryHandler(charge_request, pattern="^charge_"))
 
-    # تنظیم کامندها و اجرای بات
-    app.post_init = set_bot_commands  # این کلک مهمه! ست کردن async فانکشن بدون اجرای دستی!
-    app.run_polling()  # همین کافیه، نیازی به asyncio.run نداری
+    app.post_init = set_bot_commands
+    app.run_polling()
+
 
 if __name__ == "__main__":
     main()
