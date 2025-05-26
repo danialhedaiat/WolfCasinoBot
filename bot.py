@@ -40,7 +40,12 @@ async def new_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("لطفاً نام کاربری ادمین جدید را وارد کنید.")
         return
 
-    new_admin = Admin(telegram_username=new_admin_username)
+    member = next((member for member in members if member.telegram_username == new_admin_username), None)
+    if not member:
+        await update.message.reply_text(f"کاربری با نام {new_admin_username} پیدا نشد. لطفاً ابتدا کاربر را به یک میز اضافه کنید.")
+        return
+    
+    new_admin = Admin(telegram_username=new_admin_username, telegram_id=member.telegram_id)
     admins.append(new_admin)
 
     await update.message.reply_text(f"ادمین جدید {new_admin_username} اضافه شد!")
@@ -118,6 +123,8 @@ async def charge_request(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     notify_text = f"درخواست شارژ جدید توسط {username} ثبت شد."
     await context.bot.send_message(chat_id=super_admin.telegram_id, text=notify_text)
+    for admin in admins:
+        await context.bot.send_message(chat_id=admin.telegram_id, text=notify_text)
 
 
 async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
