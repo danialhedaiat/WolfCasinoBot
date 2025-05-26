@@ -29,6 +29,19 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
 
+async def restart(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.username
+    if user_id != super_admin.telegram_username and user_id not in [admin.telegram_username for admin in admins]:
+        await update.message.reply_text("فقط ادمین می‌تونه همه چیز رو ریست کنه.")
+        return
+
+    global tables, admins, members
+    tables = []
+    admins = []
+    members = []
+
+    context.bot.send_message(chat_id=update.effective_chat.id, text="همه چیز ریست شد!")
+
 async def new_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.username
     if user_id != super_admin.telegram_username:
@@ -44,7 +57,7 @@ async def new_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not member:
         await update.message.reply_text(f"کاربری با نام {new_admin_username} پیدا نشد. لطفاً ابتدا کاربر را به یک میز اضافه کنید.")
         return
-    
+
     new_admin = Admin(telegram_username=new_admin_username, telegram_id=member.telegram_id)
     admins.append(new_admin)
 
@@ -167,10 +180,11 @@ async def charge(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def set_bot_commands(application):
     await application.bot.set_my_commands([
         BotCommand("start", "شروع"),
-        BotCommand("admin", "اضافه کردن ادمین جدید (فقط ادمین)"),
         BotCommand("join", "عضویت در میز"),
-        BotCommand("newgame", "ساخت میز جدید (فقط ادمین)"),
         BotCommand("charge", "درخواست شارژ و مشاهده تعداد شارژ"),
+        BotCommand("admin", "اضافه کردن ادمین جدید (فقط ادمین)"),
+        BotCommand("restart", "ری استارت (فقط ادمین)"),
+        BotCommand("newgame", "ساخت میز جدید (فقط ادمین)"),
         BotCommand("status", "وضعیت همه میزها (فقط ادمین)"),
     ])
 
@@ -184,6 +198,7 @@ def main():
     app.add_handler(CommandHandler("newgame", new_table))
     app.add_handler(CommandHandler("status", status))
     app.add_handler(CommandHandler("charge", charge))
+    app.add_handler(CommandHandler("restart", restart))
     app.add_handler(CommandHandler("join", join))
     app.add_handler(CallbackQueryHandler(join_table, pattern="^join_"))
     app.add_handler(CallbackQueryHandler(charge_request, pattern="^charge_"))
