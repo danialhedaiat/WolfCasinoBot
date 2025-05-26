@@ -35,12 +35,11 @@ async def restart(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("فقط ادمین می‌تونه همه چیز رو ریست کنه.")
         return
 
-    global tables, admins, members
-    tables = []
-    admins = []
-    members = []
 
-    context.bot.send_message(chat_id=update.effective_chat.id, text="همه چیز ریست شد!")
+    tables.clear()
+    members.clear()
+
+    await context.bot.send_message(chat_id=super_admin.telegram_id, text="همه چیز ریست شد!")
 
 async def new_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.username
