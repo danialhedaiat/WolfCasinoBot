@@ -10,7 +10,8 @@ from table import Table
 tables: list[Table] = []
 
 super_user = os.getenv("SUPER_USER")
-super_admin = Admin(telegram_id=super_user)
+super_id = os.getenv("SUPER_ID")
+super_admin = Admin(telegram_username=super_user, telegram_id=super_id)
 
 admins: list[Admin] = []
 
@@ -20,7 +21,7 @@ members: list[Member] = []
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.username
 
-    if user_id == super_admin.telegram_id:
+    if user_id == super_admin.telegram_username:
         await update.message.reply_text("سلام ادمین! با دستور /newgame یه میز جدید بساز.")
     else:
         if not tables:
@@ -30,7 +31,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def new_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.username
-    if user_id != super_admin.telegram_id:
+    if user_id != super_admin.telegram_username:
         await update.message.reply_text("فقط ادمین می‌تونه ادمین جدید اضافه کنه.")
         return
 
@@ -39,7 +40,7 @@ async def new_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("لطفاً نام کاربری ادمین جدید را وارد کنید.")
         return
 
-    new_admin = Admin(telegram_id=new_admin_username)
+    new_admin = Admin(telegram_username=new_admin_username)
     admins.append(new_admin)
 
     await update.message.reply_text(f"ادمین جدید {new_admin_username} اضافه شد!")
@@ -57,7 +58,7 @@ async def join(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def new_table(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.username
-    if user_id != super_admin.telegram_id and user_id not in [admin.telegram_id for admin in admins]:
+    if user_id != super_admin.telegram_username and user_id not in [admin.telegram_username for admin in admins]:
         await update.message.reply_text("فقط ادمین می‌تونه میز جدید بسازه.")
         return
 
@@ -79,8 +80,8 @@ async def join_table(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = query.from_user.id
     username = query.from_user.username or query.from_user.full_name
 
-    member = Member(telegram_id=username)
-    if member.telegram_id in tuple(member.telegram_id for member in members):
+    member = Member(telegram_username=username, telegram_id=user_id)
+    if member.telegram_username in tuple(member.telegram_username for member in members):
         await query.edit_message_text("شما در این میز حضور دارید.")
         return
     members.append(member)
@@ -89,9 +90,9 @@ async def join_table(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not table:
         await query.edit_message_text("میز مورد نظر پیدا نشد.")
         return
-    table.add_member(member.telegram_id)
+    table.add_member(member.telegram_username)
 
-    keyboard = [[InlineKeyboardButton("💵 منو شارژ کن", callback_data=f"charge_{member.telegram_id}")]]
+    keyboard = [[InlineKeyboardButton("💵 منو شارژ کن", callback_data=f"charge_{member.telegram_username}")]]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
     await query.edit_message_text(
@@ -107,7 +108,7 @@ async def charge_request(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = query.from_user.id
     username = query.from_user.username or query.from_user.full_name
 
-    member = next((member for member in members if member.telegram_id == username), None)
+    member = next((member for member in members if member.telegram_username == username), None)
     if not member:
         await query.edit_message_text("شما هنوز به هیچ میزی نپیوسته‌اید. لطفاً ابتدا به یک میز بپیوندید.")
         return
@@ -117,21 +118,19 @@ async def charge_request(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     notify_text = f"درخواست شارژ جدید توسط {username} ثبت شد."
     await context.bot.send_message(chat_id=super_admin.telegram_id, text=notify_text)
-    for admin in admins:
-        await context.bot.send_message(chat_id=admin.telegram_id, text=notify_text)
 
 
 async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.username
-    if user_id != super_admin.telegram_id and user_id not in [
-        admin.telegram_id for
+    if user_id != super_admin.telegram_username and user_id not in [
+        admin.telegram_username for
         admin in admins]:
         await update.effective_message.reply_text("فقط ادمین به این دسترسی داره.")
         return
 
     msg = "📊 وضعیت همه میزها:\n\n"
     for member in members:
-        msg += f"🃏 {member.telegram_id}:\n"
+        msg += f"🃏 {member.telegram_username}:\n"
         msg += f"  - {member.charge_count} شارژ\n"
         msg += "\n"
 
@@ -141,14 +140,14 @@ async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def charge(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.username
 
-    if user_id not in [member.telegram_id for member in members]:
+    if user_id not in [member.telegram_username for member in members]:
         await update.message.reply_text("شما هنوز به هیچ میزی نپیوسته‌اید. لطفاً ابتدا به یک میز بپیوندید.")
         return
 
     keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton("🔁 منو شارژ کن", callback_data=f"charge_")]
     ])
-    member = next((member for member in members if member.telegram_id == user_id), None)
+    member = next((member for member in members if member.telegram_username == user_id), None)
 
     await update.message.reply_text(
         f"💰 وضعیت شارژ شما :\n"
